@@ -7,6 +7,296 @@ import sqlite3
 import csv
 import io
 
+try:
+    import pyodbc
+except ImportError:
+    pyodbc = None
+
+DB_SERVER = r"KENMOZ-DB04\PRODUCTION"
+DB_NAME = "KMR_OPSDATA"
+DB_DRIVER = "{ODBC Driver 17 for SQL Server}"
+
+SQL_SERVER_TABLES = {
+    "tides": [
+        "site_id", "site_name", "date_time", "observed_m", "predicted_m", "surge_m",
+        "msl_m", "residual_m", "stddev", "status", "quality_percent", "quality_flag"
+    ],
+    "ctd": ["site_id", "site_name", "date_time", "conductivity", "temperature_celsius", "depth_m", "quality_percent"],
+    "water_quality": ["site_id", "site_name", "date_time", "temperature_celsius", "quality_percent", "records_count"],
+    "meteorological": [
+        "site_id", "site_name", "date_time", "elevation_m", "wind_speed_ms", "wind_direction_deg",
+        "wind_u_ms", "wind_v_ms", "gust_speed_ms", "gust_direction_deg", "gust_u_ms", "gust_v_ms",
+        "atmos_pressure_mbar", "temperature_celsius", "humidity_percent", "dew_point_celsius", "quality_percent"
+    ],
+    "waves": [
+        "site_id", "site_name", "date_time", "wave_height_sig_m", "wave_height_max_m",
+        "wave_period_peak_s", "zero_upcross_period_mean_s", "wave_period_sig_s", "wave_period_mean_s",
+        "wave_direction_mean_deg", "wave_direction_peak_deg", "directional_spread_mean_deg", "total_energy", "quality_percent"
+    ],
+    "air_quality": ["site_id", "site_name", "date_time", "pollutant_level", "quality_percent"],
+    "currents": ["site_id", "site_name", "date_time", "current_speed_ms", "current_direction_deg", "depth_m", "quality_percent"]
+}
+
+SQL_SERVER_CREATE_QUERIES = {
+    "tides": '''
+        IF OBJECT_ID('dbo.tides', 'U') IS NULL
+        CREATE TABLE dbo.tides (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            site_id INT,
+            site_name NVARCHAR(255),
+            date_time DATETIME2,
+            observed_m FLOAT,
+            predicted_m FLOAT,
+            surge_m FLOAT,
+            msl_m FLOAT,
+            residual_m FLOAT,
+            stddev FLOAT,
+            status NVARCHAR(100),
+            quality_percent INT,
+            quality_flag INT,
+            created_at DATETIME2 DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT uq_tides_site_date UNIQUE(site_id, date_time)
+        )''',
+    "ctd": '''
+        IF OBJECT_ID('dbo.ctd', 'U') IS NULL
+        CREATE TABLE dbo.ctd (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            site_id INT,
+            site_name NVARCHAR(255),
+            date_time DATETIME2,
+            conductivity FLOAT,
+            temperature_celsius FLOAT,
+            depth_m FLOAT,
+            quality_percent INT,
+            created_at DATETIME2 DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT uq_ctd_site_date UNIQUE(site_id, date_time)
+        )''',
+    "water_quality": '''
+        IF OBJECT_ID('dbo.water_quality', 'U') IS NULL
+        CREATE TABLE dbo.water_quality (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            site_id INT,
+            site_name NVARCHAR(255),
+            date_time DATETIME2,
+            temperature_celsius FLOAT,
+            quality_percent INT,
+            records_count INT,
+            created_at DATETIME2 DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT uq_water_quality_site_date UNIQUE(site_id, date_time)
+        )''',
+    "meteorological": '''
+        IF OBJECT_ID('dbo.meteorological', 'U') IS NULL
+        CREATE TABLE dbo.meteorological (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            site_id INT,
+            site_name NVARCHAR(255),
+            date_time DATETIME2,
+            elevation_m FLOAT,
+            wind_speed_ms FLOAT,
+            wind_direction_deg FLOAT,
+            wind_u_ms FLOAT,
+            wind_v_ms FLOAT,
+            gust_speed_ms FLOAT,
+            gust_direction_deg FLOAT,
+            gust_u_ms FLOAT,
+            gust_v_ms FLOAT,
+            atmos_pressure_mbar FLOAT,
+            temperature_celsius FLOAT,
+            humidity_percent FLOAT,
+            dew_point_celsius FLOAT,
+            quality_percent INT,
+            created_at DATETIME2 DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT uq_meteorological_site_date UNIQUE(site_id, date_time)
+        )''',
+    "waves": '''
+        IF OBJECT_ID('dbo.waves', 'U') IS NULL
+        CREATE TABLE dbo.waves (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            site_id INT,
+            site_name NVARCHAR(255),
+            date_time DATETIME2,
+            wave_height_sig_m FLOAT,
+            wave_height_max_m FLOAT,
+            wave_period_peak_s FLOAT,
+            zero_upcross_period_mean_s FLOAT,
+            wave_period_sig_s FLOAT,
+            wave_period_mean_s FLOAT,
+            wave_direction_mean_deg FLOAT,
+            wave_direction_peak_deg FLOAT,
+            directional_spread_mean_deg FLOAT,
+            total_energy FLOAT,
+            quality_percent INT,
+            created_at DATETIME2 DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT uq_waves_site_date UNIQUE(site_id, date_time)
+        )''',
+    "air_quality": '''
+        IF OBJECT_ID('dbo.air_quality', 'U') IS NULL
+        CREATE TABLE dbo.air_quality (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            site_id INT,
+            site_name NVARCHAR(255),
+            date_time DATETIME2,
+            pollutant_level FLOAT,
+            quality_percent INT,
+            created_at DATETIME2 DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT uq_air_quality_site_date UNIQUE(site_id, date_time)
+        )''',
+    "currents": '''
+        IF OBJECT_ID('dbo.currents', 'U') IS NULL
+        CREATE TABLE dbo.currents (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            site_id INT,
+            site_name NVARCHAR(255),
+            date_time DATETIME2,
+            current_speed_ms FLOAT,
+            current_direction_deg FLOAT,
+            depth_m FLOAT,
+            quality_percent INT,
+            created_at DATETIME2 DEFAULT SYSUTCDATETIME(),
+            CONSTRAINT uq_currents_site_date UNIQUE(site_id, date_time)
+        )'''
+}
+
+
+def get_sql_type(col):
+    if col in ['site_id', 'quality_percent', 'quality_flag', 'records_count']:
+        return 'INT'
+    elif col == 'site_name':
+        return 'NVARCHAR(255)'
+    elif col == 'date_time':
+        return 'DATETIME2'
+    elif col == 'status':
+        return 'NVARCHAR(100)'
+    else:
+        return 'FLOAT'
+
+
+def get_sql_server_connection():
+    if pyodbc is None:
+        raise ImportError("pyodbc is necessário para conexão com SQL Server")
+
+    conn_str = (
+        f"DRIVER={DB_DRIVER};"
+        f"SERVER={DB_SERVER};"
+        f"DATABASE={DB_NAME};"
+        f"Trusted_Connection=yes;"
+        f"TrustServerCertificate=yes;"
+    )
+    print(f"[db_insert] Conectando ao SQL Server: {DB_SERVER} / {DB_NAME}")
+    return pyodbc.connect(conn_str, autocommit=True)
+
+
+def ensure_sql_server_tables():
+    conn = get_sql_server_connection()
+    cursor = conn.cursor()
+
+    print("[db_insert] Garantindo criação das tabelas SQL Server...")
+    for table_name, query in SQL_SERVER_CREATE_QUERIES.items():
+        print(f"[db_insert] Criando/verificando tabela: {table_name}")
+        try:
+            cursor.execute(query)
+        except Exception as exc:
+            print(f"[db_insert] Erro criando tabela {table_name}: {exc}")
+
+    cursor.close()
+    conn.close()
+
+
+def get_sql_server_max_date(table_name):
+    conn = get_sql_server_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT MAX(date_time) FROM dbo.{table_name}")
+        result = cursor.fetchone()[0]
+        return result
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def sync_table_to_sql_server(table_name, sqlite_db_path="weather.db", batch_size=1000):
+    if pyodbc is None:
+        raise ImportError("pyodbc é necessário para sincronizar com SQL Server")
+
+    ensure_sql_server_tables()
+    sql_conn = get_sql_server_connection()
+    sql_cursor = sql_conn.cursor()
+
+    last_sql_date = get_sql_server_max_date(table_name)
+    sqlite_conn = sqlite3.connect(sqlite_db_path)
+    sqlite_cursor = sqlite_conn.cursor()
+
+    columns = SQL_SERVER_TABLES[table_name]
+    select_cols = ", ".join(columns)
+
+    if last_sql_date:
+        sqlite_cursor.execute(
+            f"SELECT {select_cols} FROM {table_name} WHERE date_time > ? ORDER BY date_time ASC", (last_sql_date,)
+        )
+    else:
+        sqlite_cursor.execute(f"SELECT {select_cols} FROM {table_name} ORDER BY date_time ASC")
+
+    rows = sqlite_cursor.fetchall()
+    inserted = 0
+    print(f"[db_insert] Sync {table_name}: last_sql_date={last_sql_date}, records_to_sync={len(rows)}")
+
+    if rows:
+        # Create temp table
+        temp_table = f"#temp_{table_name}"
+        create_temp_sql = f"""
+        CREATE TABLE {temp_table} (
+            {', '.join([f'{col} {get_sql_type(col)}' for col in columns])}
+        )
+        """
+        sql_cursor.execute(create_temp_sql)
+
+        # Bulk insert into temp table in batches
+        placeholders = ", ".join(["?" for _ in columns])
+        insert_temp_sql = f"INSERT INTO {temp_table} ({', '.join(columns)}) VALUES ({placeholders})"
+
+        batch_count = 0
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i:i + batch_size]
+            batch_count += 1
+            print(f"[db_insert] Sync {table_name}: enviando batch {batch_count} com {len(batch)} registros")
+            sql_cursor.executemany(insert_temp_sql, batch)
+
+        # Merge from temp to main table
+        merge_sql = f"""
+        MERGE dbo.{table_name} AS target
+        USING {temp_table} AS source
+        ON target.site_id = source.site_id AND target.date_time = source.date_time
+        WHEN NOT MATCHED THEN
+            INSERT ({', '.join(columns)})
+            VALUES ({', '.join([f'source.{col}' for col in columns])});
+        """
+        sql_cursor.execute(merge_sql)
+
+        # Get count of inserted rows
+        sql_cursor.execute(f"SELECT @@ROWCOUNT")
+        inserted = sql_cursor.fetchone()[0]
+
+        print(f"[db_insert] Sync {table_name}: inserted={inserted}")
+
+        # Drop temp table
+        sql_cursor.execute(f"DROP TABLE {temp_table}")
+
+    sqlite_cursor.close()
+    sqlite_conn.close()
+    sql_cursor.close()
+    sql_conn.close()
+    return inserted
+
+
+def sync_all_tables_to_sql_server(sqlite_db_path="weather.db"):
+    total = 0
+    print("[db_insert] Iniciando sincronização de todas as tabelas para SQL Server...")
+    for table_name in SQL_SERVER_TABLES.keys():
+        print(f"[db_insert] Iniciando sync da tabela: {table_name}")
+        total += sync_table_to_sql_server(table_name, sqlite_db_path=sqlite_db_path)
+    print(f"[db_insert] Sincronização completa, total de registros sincronizados: {total}")
+    return total
+
 def create_tables(db_path="weather.db"):
     """Cria tabelas estruturadas para dados de 2025"""
     conn = sqlite3.connect(db_path)

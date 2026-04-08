@@ -6,10 +6,12 @@ Sistema modular para coleta e atualização de dados meteorológicos da API Port
 
 - **`main.py`**: Script principal com lógica de execução e argumentos de linha de comando
 - **`scraping.py`**: Módulo de scraping com classes `WeatherDownloader` e `DataProcessor`
-- **`db_insert.py`**: Módulo de banco de dados com funções de criação de tabelas e inserção
+- **`db_insert.py`**: Módulo de banco de dados com funções de criação de tabelas, inserção e sincronização com SQL Server
 - **`weather.db`**: Banco de dados SQLite com todos os dados coletados
 
 ## Funcionalidades
+
+- **Sincronização SQL Server**: Copia dados para `KENMOZ-DB02\OPSDATA`, `ShiftMasterMOMA`, usando o driver `{ODBC Driver 17 for SQL Server}`
 
 - **Download Inicial**: Coleta completa dos dados históricos (2025 até hoje)
 - **Atualização Incremental**: Busca apenas dados mais recentes
@@ -53,6 +55,7 @@ python main.py update --cookie "seu_cookie_aqui"
 - requests
 - pandas
 - numpy
+- pyodbc
 
 ## Configuração
 

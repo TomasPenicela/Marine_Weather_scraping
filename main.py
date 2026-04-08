@@ -15,7 +15,7 @@ import sys
 import argparse
 from datetime import datetime, timedelta
 from scraping import WeatherDownloader, DataProcessor
-from db_insert import create_tables
+from db_insert import create_tables, ensure_sql_server_tables, sync_all_tables_to_sql_server
 
 # ===== CONFIGURAÇÕES =====
 SESSION_COOKIE = "fnjv9g5c4dc79jfs0rjr7k72gj"
@@ -74,9 +74,14 @@ def initial_download():
     print("="*70 + "\n")
 
     # Criar tabelas
-    print("📦 Criando estrutura de banco de dados...")
+    print("📦 Criando estrutura de banco de dados local...")
     create_tables()
-    print("✓ Banco de dados inicializado\n")
+    print("✓ Banco de dados local inicializado\n")
+
+    # Garantir tabelas no SQL Server
+    print("📦 Garantindo estruturas no SQL Server...")
+    ensure_sql_server_tables()
+    print("✓ Estruturas no SQL Server prontas\n")
 
     # Inicializar componentes
     downloader = WeatherDownloader(SESSION_COOKIE)
@@ -122,6 +127,13 @@ def initial_download():
     print("\n" + "="*70)
     print("📊 RESUMO DO DOWNLOAD INICIAL\n")
     counts = get_record_counts()
+
+    try:
+        print("\n📦 Sincronizando dados iniciais para SQL Server...")
+        total_synced = sync_all_tables_to_sql_server()
+        print(f"✓ {total_synced} registros sincronizados no SQL Server")
+    except Exception as e:
+        print(f"⚠️ Erro na sincronização SQL Server: {e}")
 
     for name, result in results.items():
         status = "✓" if result["success"] else "⚠️ "
@@ -184,6 +196,14 @@ def update_data():
             print(f"  ❌ {name:30} erro: {str(e)[:40]}")
 
     print(f"\n✅ Atualização concluída: +{total_new_records} registros em {successful_updates} dataset(s)")
+
+    # Sincronizar para SQL Server somente o que for novo
+    try:
+        print("\n📦 Sincronizando alterações para SQL Server...")
+        total_synced = sync_all_tables_to_sql_server()
+        print(f"✓ {total_synced} registros sincronizados no SQL Server")
+    except Exception as e:
+        print(f"⚠️ Erro na sincronização SQL Server: {e}")
 
     # Verificação final
     print("\n📊 STATUS ATUAL DO BANCO:")
