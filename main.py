@@ -7,7 +7,7 @@ from datetime import date
 # ===== CONFIGURAÇÕES =====
 SESSION_COOKIE = "fnjv9g5c4dc79jfs0rjr7k72gj"
 SITE_ID = 148
-START_DATE = "2025-01-01"     # Janeiro 2025
+START_DATE = "2025-07-01"     # Julho 2025
 END_DATE = date.today().strftime("%Y-%m-%d")  # Dados atualizados até hoje
 PERIOD_DAYS = 30               # Baixar em chunks de 30 dias
 
